@@ -1,3 +1,4 @@
+import os
 import flet as ft
 from datetime import datetime
 import openpyxl
@@ -7,13 +8,12 @@ from components import StatCard, BatteryIndicator, CalendarView, MonthlyStatsCar
 def main(page: ft.Page):
     page.title = "Dashboard - Control de Avance"
     page.theme_mode = ft.ThemeMode.DARK
-    page.padding = 30
-    page.window_min_width = 1100
-    page.window_min_height = 700
+    page.padding = 15
+    page.scroll = ft.ScrollMode.AUTO  # Permite scroll general en la página
 
     data = DataManager("data.json")
 
-    # --- Inicialización de Componentes UI ---
+    # --- Componentes UI ---
     battery = BatteryIndicator()
     card_accum = StatCard("Horas Acumuladas", ft.icons.ACCESS_TIME, ft.colors.BLUE_400)
     card_rem = StatCard("Horas Restantes", ft.icons.TIMER_OFF, ft.colors.ORANGE_400)
@@ -23,10 +23,13 @@ def main(page: ft.Page):
     
     progress_bar = ft.ProgressBar(value=0, color=ft.colors.BLUE_400, bgcolor=ft.colors.GREY_800, height=8)
 
-    # --- Cuadro de Diálogo (Felicitación) ---
+    # Contenedor escalable para el Zoom
+    zoom_container = ft.Container()
+
+    # --- Diálogo de Felicitación ---
     dlg_congrats = ft.AlertDialog(
         title=ft.Text("¡Objetivo Completado! 🎉", size=24, color=ft.colors.GREEN_400),
-        content=ft.Text("Has alcanzado el 100% de tu objetivo de horas. ¡Excelente disciplina!"),
+        content=ft.Text("Has alcanzado el 100% de tu objetivo de horas. ¡Excelente trabajo!"),
         actions=[ft.TextButton("Cerrar", on_click=lambda e: close_dialog())]
     )
     page.overlay.append(dlg_congrats)
@@ -45,7 +48,6 @@ def main(page: ft.Page):
             dt = datetime.strptime(d, "%Y-%m-%d")
             wd = dt.weekday()
             
-            # Lunes a Viernes (0-4) -> 8h, Sábado (5) -> 4h
             h = 8 if wd < 5 else (4 if wd == 5 else 0)
             total_hours += h
             
@@ -55,11 +57,9 @@ def main(page: ft.Page):
             m_key = dt.strftime("%Y-%m")
             month_stats[m_key] = month_stats.get(m_key, 0) + h
 
-        # Cálculos de progreso
         remaining = max(0, data.goal - total_hours)
         percentage = (total_hours / data.goal) * 100 if data.goal > 0 else 0
 
-        # Actualizar UI
         card_accum.update_value(total_hours)
         card_rem.update_value(remaining)
         card_days.update_value(len(data.worked_days))
@@ -70,14 +70,12 @@ def main(page: ft.Page):
         progress_bar.value = min(1.0, percentage / 100)
         progress_bar.update()
 
-        # Validación del 100%
         if percentage >= 100 and not data.notified_100:
             dlg_congrats.open = True
             data.notified_100 = True
         elif percentage < 100:
             data.notified_100 = False
 
-    # Instanciar calendario pasando el callback de actualización
     calendar_view = CalendarView(data, on_toggle=update_dashboard)
 
     # --- Funciones Extra (Meta y Exportación) ---
@@ -88,7 +86,7 @@ def main(page: ft.Page):
                 data.goal = val
                 update_dashboard()
         except ValueError:
-            pass # Ignorar si no es número
+            pass
 
     def export_excel(e):
         try:
@@ -114,54 +112,66 @@ def main(page: ft.Page):
             page.snack_bar.open = True
             page.update()
 
-    # --- Maquetación Principal (Layout) ---
+    # --- Control de Zoom ---
+    def change_zoom(e):
+        zoom_container.scale = e.control.value
+        zoom_container.update()
+
+    zoom_slider = ft.Slider(
+        min=0.5, max=1.3, value=1.0, divisions=8, 
+        label="Zoom: {value}x", width=140, on_change=change_zoom
+    )
+
+    # --- Maquetación Responsiva ---
     goal_input = ft.TextField(
-        label="Objetivo (Horas)", value=str(data.goal), 
-        width=120, height=45, keyboard_type=ft.KeyboardType.NUMBER,
+        label="Meta (Hs)", value=str(data.goal), 
+        width=100, height=40, text_size=12,
+        keyboard_type=ft.KeyboardType.NUMBER,
         on_submit=update_goal, on_blur=update_goal
     )
 
     header = ft.Row([
-        ft.Text("Panel de Avance", size=32, weight="bold"),
+        ft.Text("Panel de Avance", size=24, weight="bold"),
         ft.Row([
+            ft.Icon(ft.icons.ZOOM_IN, size=20, color=ft.colors.WHITE70),
+            zoom_slider,
             goal_input,
-            ft.ElevatedButton("Exportar Excel", icon=ft.icons.DOWNLOAD, on_click=export_excel, bgcolor=ft.colors.BLUE_700, color=ft.colors.WHITE)
-        ], spacing=15)
-    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+            ft.IconButton(icon=ft.icons.DOWNLOAD, tooltip="Exportar Excel", on_click=export_excel, icon_color=ft.colors.BLUE_200)
+        ], spacing=10, wrap=True)
+    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True)
 
-    # Ensamblar la pantalla
-    page.add(
+    # Reorganización responsiva por columnas (Adaptable a celular/escritorio)
+    main_content = ft.ResponsiveRow([
+        # En pantallas chicas ocupa 12 columnas (todo el ancho), en medianas 4
+        ft.Column([card_accum, card_rem, card_days, card_sats, monthly_card], col={"sm": 12, "md": 4}, spacing=10),
+        # Batería
+        ft.Container(content=battery, col={"sm": 12, "md": 2}, alignment=ft.alignment.center, padding=10),
+        # Calendario
+        ft.Container(content=calendar_view, col={"sm": 12, "md": 6})
+    ], vertical_alignment=ft.CrossAxisAlignment.START)
+
+    # Encapsulamos el contenido en el contenedor con escala (Zoom)
+    zoom_container.content = ft.Column([
         header,
-        ft.Container(height=10),
         progress_bar,
-        ft.Container(height=20),
-        ft.Row([
-            # Columna Izquierda: KPIs
-            ft.Column([card_accum, card_rem, card_days, card_sats, monthly_card], spacing=15),
-            # Centro: Batería
-            ft.Container(
-                content=battery,
-                padding=ft.padding.only(left=30, right=30),
-                alignment=ft.alignment.center
-            ),
-            # Derecha: Calendario
-            ft.Container(content=calendar_view, expand=True)
-        ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.START)
+        ft.Container(height=10),
+        main_content
+    ])
+    zoom_container.scale = 1.0
+    zoom_container.animate_scale = ft.animation.Animation(300, ft.AnimationCurve.EASE_OUT)
+
+    # Permitir Scroll Horizontal si el zoom hace la pantalla muy grande
+    scrollable_wrapper = ft.Row(
+        [zoom_container], 
+        scroll=ft.ScrollMode.AUTO,
+        alignment=ft.MainAxisAlignment.CENTER
     )
 
-    # Primer renderizado de cálculos
+    page.add(scrollable_wrapper)
     update_dashboard()
 
-import os
-import flet as ft
-
-# ... todo el resto de tu código del dashboard permanece igual ...
-
 if __name__ == "__main__":
-    # Render asigna dinámicamente un puerto en la variable PORT
     port = int(os.environ.get("PORT", 8080))
-    
-    # Es VITAL incluir host="0.0.0.0" para que Render acepte la conexión
     ft.app(
         target=main, 
         view=ft.AppView.WEB_BROWSER, 
