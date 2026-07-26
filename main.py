@@ -9,7 +9,8 @@ def main(page: ft.Page):
     page.title = "Dashboard - Control de Avance"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 15
-    page.scroll = ft.ScrollMode.AUTO  # Permite scroll general en la página
+    page.scroll = ft.ScrollMode.AUTO  # Permite desplazamiento vertical
+    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
 
     data = DataManager("data.json")
 
@@ -22,9 +23,6 @@ def main(page: ft.Page):
     monthly_card = MonthlyStatsCard()
     
     progress_bar = ft.ProgressBar(value=0, color=ft.colors.BLUE_400, bgcolor=ft.colors.GREY_800, height=8)
-
-    # Contenedor escalable para el Zoom
-    zoom_container = ft.Container()
 
     # --- Diálogo de Felicitación ---
     dlg_congrats = ft.AlertDialog(
@@ -112,17 +110,7 @@ def main(page: ft.Page):
             page.snack_bar.open = True
             page.update()
 
-    # --- Control de Zoom ---
-    def change_zoom(e):
-        zoom_container.scale = e.control.value
-        zoom_container.update()
-
-    zoom_slider = ft.Slider(
-        min=0.5, max=1.3, value=1.0, divisions=8, 
-        label="Zoom: {value}x", width=140, on_change=change_zoom
-    )
-
-    # --- Maquetación Responsiva ---
+    # --- Controles Superiores ---
     goal_input = ft.TextField(
         label="Meta (Hs)", value=str(data.goal), 
         width=100, height=40, text_size=12,
@@ -133,16 +121,14 @@ def main(page: ft.Page):
     header = ft.Row([
         ft.Text("Panel de Avance", size=24, weight="bold"),
         ft.Row([
-            ft.Icon(ft.icons.ZOOM_IN, size=20, color=ft.colors.WHITE70),
-            zoom_slider,
             goal_input,
             ft.IconButton(icon=ft.icons.DOWNLOAD, tooltip="Exportar Excel", on_click=export_excel, icon_color=ft.colors.BLUE_200)
-        ], spacing=10, wrap=True)
+        ], spacing=10)
     ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True)
 
-    # Reorganización responsiva por columnas (Adaptable a celular/escritorio)
+    # --- Layout Responsivo (Apto para Móviles y Escritorio) ---
     main_content = ft.ResponsiveRow([
-        # En pantallas chicas ocupa 12 columnas (todo el ancho), en medianas 4
+        # Columna de KPIs (4 columnas en escritorio, 12 en móviles)
         ft.Column([card_accum, card_rem, card_days, card_sats, monthly_card], col={"sm": 12, "md": 4}, spacing=10),
         # Batería
         ft.Container(content=battery, col={"sm": 12, "md": 2}, alignment=ft.alignment.center, padding=10),
@@ -150,24 +136,19 @@ def main(page: ft.Page):
         ft.Container(content=calendar_view, col={"sm": 12, "md": 6})
     ], vertical_alignment=ft.CrossAxisAlignment.START)
 
-    # Encapsulamos el contenido en el contenedor con escala (Zoom)
-    zoom_container.content = ft.Column([
-        header,
-        progress_bar,
-        ft.Container(height=10),
-        main_content
-    ])
-    zoom_container.scale = 1.0
-    zoom_container.animate_scale = ft.animation.Animation(300, ft.AnimationCurve.EASE_OUT)
-
-    # Permitir Scroll Horizontal si el zoom hace la pantalla muy grande
-    scrollable_wrapper = ft.Row(
-        [zoom_container], 
-        scroll=ft.ScrollMode.AUTO,
-        alignment=ft.MainAxisAlignment.CENTER
+    # Añadir todo directamente a la página
+    page.add(
+        ft.Container(
+            content=ft.Column([
+                header,
+                progress_bar,
+                ft.Container(height=10),
+                main_content
+            ], spacing=15),
+            max_width=1200 # Limita el ancho en pantallas gigantes para verse centrado
+        )
     )
 
-    page.add(scrollable_wrapper)
     update_dashboard()
 
 if __name__ == "__main__":
